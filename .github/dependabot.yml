@@ -1,0 +1,12 @@
+# Pull requests for updates to the pinned actions and Python packages. Review
+# them before merging: they change what runs with the secrets.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly

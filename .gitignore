@@ -1,0 +1,14 @@
+# Secrets and credentials: never committed.
+.env
+.env.*
+!.env.example
+*.pem
+*service-account*.json
+*credentials*.json
+
+# Local output and tooling.
+out/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc

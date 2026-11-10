@@ -1,0 +1,78 @@
+# The feedback digest, twice a day (and on demand from the Actions tab).
+#
+# Public repo, so: secrets only reach the one step that needs them; the log
+# shows counts and error types, never content (see digest/safelog.py); actions
+# are pinned to full commit SHAs; dependencies are installed by hash; and the
+# only triggers are the schedule and a manual run (no pull_request_target, no
+# runs for forks, which get no secrets anyway).
+name: Feedback digest
+
+on:
+  schedule:
+    # Times are UTC: 13:17 is morning and 01:17 evening in US Central.
+    # (Off the hour on purpose: on-the-hour schedules are the busiest and can be delayed.)
+    - cron: "17 13 * * *"
+    - cron: "17 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feedback-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    # Only in this repository: a fork that switches on Actions does nothing.
+    if: github.repository == 'BlightsOfTheRoundTable/corpse-feedback-digest'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # To commit state/state.json (positions only) back.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (hash-checked)
+        run: python -m pip install --disable-pip-version-check --no-deps --require-hashes -r requirements.txt
+
+      - name: Build and send the digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DIGEST_WEBHOOK_URL: ${{ secrets.DIGEST_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          DISCORD_CHANNEL_IDS: ${{ vars.DISCORD_CHANNEL_IDS }}
+          RUN_REPORTS_SHEET_ID: ${{ vars.RUN_REPORTS_SHEET_ID }}
+          RUN_REPORTS_RANGE: ${{ vars.RUN_REPORTS_RANGE }}
+          BUG_REPORTS_SHEET_ID: ${{ vars.BUG_REPORTS_SHEET_ID }}
+          BUG_REPORTS_RANGE: ${{ vars.BUG_REPORTS_RANGE }}
+          YOUTUBE_CHANNEL_ID: ${{ vars.YOUTUBE_CHANNEL_ID }}
+          FIRST_LOOKBACK_DAYS: ${{ vars.FIRST_LOOKBACK_DAYS }}
+        run: python -m digest
+
+      # Positions only (ids, row counts, times), and it doubles as the
+      # activity that keeps GitHub from pausing the schedule after 60 days.
+      - name: Save progress
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/state.json
+          if git diff --cached --quiet; then
+            echo "no progress to save"
+            exit 0
+          fi
+          git commit -q -m "Digest progress"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin HEAD:main
