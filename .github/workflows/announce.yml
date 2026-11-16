@@ -1,0 +1,63 @@
+# Announces new itch.io devlog posts in the public Discord channel, every half
+# hour (and on demand from the Actions tab). See digest/announce.py.
+#
+# Same rules as the digest: the webhook URL is a secret and reaches only the
+# step that posts; the log shows counts and error types only; actions are
+# pinned to full commit SHAs; dependencies install by hash; no
+# pull_request_target, no runs for forks.
+name: Devlog announcer
+
+on:
+  schedule:
+    - cron: "7,37 * * * *" # (Off the hour: on-the-hour schedules run late.)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devlog-announcer
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    if: github.repository == 'BlightsOfTheRoundTable/corpse-feedback-digest'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # To commit state/announced.json (public devlog links only) back.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (hash-checked)
+        run: python -m pip install --disable-pip-version-check --no-deps --require-hashes -r requirements.txt
+
+      - name: Announce new devlogs
+        env:
+          ANNOUNCE_WEBHOOK_URL: ${{ secrets.ANNOUNCE_WEBHOOK_URL }}
+          DEVLOG_FEED_URL: ${{ vars.DEVLOG_FEED_URL }}
+        run: python -m digest.announce
+
+      - name: Save what was announced
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/announced.json
+          if git diff --cached --quiet; then
+            echo "nothing new to save"
+            exit 0
+          fi
+          git commit -q -m "Devlogs announced"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git pull -q --rebase origin main # (The digest commits its own progress too.)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin HEAD:main

@@ -100,6 +100,21 @@ cp .env.example .env   # and fill it in
 .venv/Scripts/python -m pytest -q
 ```
 
+## Devlog announcer
+
+A second, smaller job (`.github/workflows/announce.yml`, `digest/announce.py`):
+every half hour it reads Corpse's itch.io devlog feed
+(`https://crunchytuna.itch.io/corpse/devlog.rss`) and posts each new devlog's
+title and link to the public announcements channel, through its own webhook.
+No pings. What it has announced is kept in `state/announced.json` (public
+devlog links only).
+
+Setup: in Discord, the announcements channel → Edit Channel → Integrations →
+Webhooks → New Webhook → Copy Webhook URL; then on GitHub, Settings → Secrets
+and variables → Actions → New repository secret, named
+`ANNOUNCE_WEBHOOK_URL`, the URL as its value. Until it's set, the job skips.
+To try it: Actions → Devlog announcer → Run workflow.
+
 ## Changing things
 
 - **Schedule:** the two `cron` lines in `.github/workflows/digest.yml` (UTC).
